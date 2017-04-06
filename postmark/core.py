@@ -72,6 +72,9 @@ class PMMail(object):
         custom_headers: A dictionary of key-value pairs of custom headers.
         attachments:    A list of tuples or email.mime.base.MIMEBase objects
                         describing attachments.
+        template_id:    The id of the template to use
+        template_model: A JSON-encodable dictionary with template variables and
+                        their values.
         '''
         # initialize properties
         self.__api_key = None
@@ -89,6 +92,8 @@ class PMMail(object):
         self.__attachments = []
         self.__message_id = None
         #self.__multipart = False
+        self.__template_id = None
+        self.__template_model = None
 
         acceptable_keys = (
             'api_key',
@@ -104,7 +109,9 @@ class PMMail(object):
             'track_opens',
             'custom_headers',
             'attachments',
-            #'multipart'
+            #'multipart',
+            'template_id',
+            'template_model',
         )
 
         for key in kwargs:
@@ -292,6 +299,25 @@ class PMMail(object):
     #     'The API Key for one of your servers on Postmark'
     # )
 
+    template_id = property(
+        lambda self: self.__template_id,
+        lambda self, value: setattr(self, '_PMMail__template_id', value),
+        lambda self: setattr(self, '_PMMail__template_id', None),
+        '''
+        The id of the template to use
+        '''
+    )
+
+    template_model = property(
+        lambda self: self.__template_model,
+        lambda self, value: setattr(self, '_PMMail__template_model', value),
+        lambda self: setattr(self, '_PMMail__template_model', None),
+        '''
+        A JSON-encodable dictionary with template variables and
+        their values.
+        '''
+    )
+
     message_id = property(
         lambda self: self.__message_id,
         lambda self, value: setattr(self, '_PMMail__message_id', value),
@@ -300,7 +326,7 @@ class PMMail(object):
         The email message ID, a UUID string.
         '''
     )
-    
+
     #####################
     #
     # LEGACY SUPPORT
@@ -334,12 +360,12 @@ class PMMail(object):
             raise PMMailMissingValueException('Cannot send an e-mail without a sender (.sender field)')
         elif not self.__to:
             raise PMMailMissingValueException('Cannot send an e-mail without at least one recipient (.to field)')
-        elif not self.__subject:
-            raise PMMailMissingValueException('Cannot send an e-mail without a subject')
-        elif not self.__html_body and not self.__text_body:
-            raise PMMailMissingValueException('Cannot send an e-mail without either an HTML or text version of your e-mail body')
-        if self.__track_opens and not self.__html_body:
-            print('WARNING: .track_opens set to True with no .html_body set. Tracking opens will not work; message will still send.')
+        elif not self.__subject and not self.__template_id:
+            raise PMMailMissingValueException('Cannot send an e-mail without a subject or template')
+        elif not self.__html_body and not self.__text_body and not self.__template_id:
+            raise PMMailMissingValueException('Cannot send an e-mail without either an HTML or text version of your e-mail body, or without a template.')
+        if self.__track_opens and not self.__html_body and not self.__template_id:
+            print('WARNING: .track_opens set to True with no .html_body or .template_id set. Tracking opens will not work; message will still send.')
 
     def to_json_message(self):
         json_message = {
@@ -361,11 +387,20 @@ class PMMail(object):
         if self.__tag:
             json_message['Tag'] = self.__tag
 
+
+        if self.__template_id:
+            json_message['TemplateId'] = self.__template_id
+
+        if self.__template_model:
+            json_message['TemplateModel'] = self.__template_model
+
+
         if self.__html_body:
             json_message['HtmlBody'] = self.__html_body
 
         if self.__text_body:
             json_message['TextBody'] = self.__text_body
+
 
         if self.__track_opens:
             json_message['TrackOpens'] = True
@@ -442,8 +477,13 @@ class PMMail(object):
             return
 
         # Set up the url Request
+        url = __POSTMARK_URL__ + 'email'
+
+        if self.__template_id:
+          url += '/withTemplate'
+
         req = Request(
-            __POSTMARK_URL__ + 'email',
+            url,
             json.dumps(json_message, cls=PMJSONEncoder).encode('utf8'),
             {
                 'Accept': 'application/json',
